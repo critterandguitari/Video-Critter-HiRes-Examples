@@ -1,0 +1,219 @@
+/******************************************************************************/
+/*  main.c                                                                   */
+/*  (c)2006 GPL, Owen Osborn, Critter and Guitari, Dearraindrop               */
+/******************************************************************************/
+/*                                                                            */
+/*  :  main.c  a color/sound paint program for the                            */
+/*                                Video Critter Hi-Res + Game Board            */
+/*                                                                            */
+/******************************************************************************/
+
+#include "LPC21xx.h"
+#include "system.h"
+#include "video.h"
+#include "audio.h"
+#include "graphics.h"
+
+// defines for buttons
+#define LEFT    0x1
+#define UP      0x2
+#define RIGHT   0x4
+#define DOWN    0x8
+
+// this is the line scan line number from video.c
+// we use it in the main program to see where the frames are
+extern int lineCount;
+
+// functions for game board
+int get_nav_buttons(void);  // returns the nav button values
+int get_button_a(void);     // returns 0 if up, 1 if pressed 
+int get_button_b(void);
+int get_button_c(void);
+int get_button_d(void);
+void gameboard_led_init(void);
+void gameboard_led_1(unsigned int);
+void gameboard_led_2(unsigned int);
+
+
+int main (void) {
+
+    int i, j, k;
+    
+    int newFrame = 0;
+    
+    unsigned int frequency[4] = {50, 100, 200, 300};
+    unsigned int amplitude[4] = {10, 100, 200, 50};
+    
+    int   center_x = 40;
+    unsigned int center_y = 40;
+    int color;
+    
+    int octave = 0;
+
+    
+    // Initialize the MCU
+    Initialize();
+
+    gameboard_led_init();   // leds on gameboard
+    
+    // flash all LEDs
+    led_board(0); gameboard_led_2(0);gameboard_led_1(1);
+    delay_ms(100);              
+    led_board(1); gameboard_led_2(1);gameboard_led_1(0);
+    delay_ms(100);
+    led_board(0); gameboard_led_2(0);gameboard_led_1(1);
+    delay_ms(100);
+    led_board(1);  gameboard_led_2(0);gameboard_led_1(0);
+
+    video_init();               // start audio and video synthesis
+    audio_init();    
+
+    delay_ms(10);
+    
+    fill_screen(0);     // clear screen
+    
+    for(;;){
+        audio_fill_buf(); // fill the audio buffer with sound.  this function is in audio.c
+
+        // in this example we only process the user application between frames.
+        // So when lineCount gets above 220, the system is not busy writing to the screen, and we have 
+        // about 40 lines worth of time to do our stuff.
+    
+        if ((!newFrame) && (lineCount < 220))
+            newFrame = 1;
+        
+        
+        //  Inside this if() is really where the user application takes place.  
+        //  It should probably be a function that gets called, but this example is simple,
+        // so we wrote it out.....
+        if (newFrame && (lineCount > 220)){
+       
+            // use the navigations buttons to move the cursor around the screen
+            // also play a tone when one of them is pressed...
+            if (!(get_nav_buttons() & RIGHT)){
+                center_x++;
+                frequency[0] = 300;
+            }
+            else
+                frequency[0] = 0;
+            
+            
+            if (!(get_nav_buttons() & LEFT)){
+                center_x--;
+                frequency[1] = 400;
+            }
+            else
+                frequency[1] = 0;
+            
+            
+            
+            if (!(get_nav_buttons() & UP)){
+                center_y--;
+                frequency[2] = 500;
+            }
+            else
+                frequency[2] = 0;
+            
+            
+            if (!(get_nav_buttons() & DOWN)){
+                center_y++;
+                frequency[3] = 200;
+            }
+            else
+                frequency[3] = 0;
+            
+            
+            center_y &= 0x7f;       // wrap cursor when it gets out of bounds
+            if (center_x < 0){
+                center_x = 160 + center_x;
+            }
+            
+            if (get_button_a())    // fill screen with black when button A is pressed
+                fill_screen(0);
+                
+            if (get_button_b())     // fill with current color when button B is pressed
+                fill_screen(color);
+            
+            if (get_button_c()){    // iverter screen with button C, inverted screen plays the sound an octave higher too
+                invert_screen();
+                octave++;
+            }
+            octave &= 0x1;
+                
+            if (get_button_d())     // change color when button D is pressed
+                color++;
+                    
+            color &= 0xff;          // color is 8 bits only
+            
+            // draw a 8x8 square
+            for (i = 0; i < 64; i++){
+                put_pixel(center_x + (i & 0x7), center_y + (i >> 3), color); 
+            }
+            
+
+            // this function controls the audio synth: voice number (0 - 3), frequency (Hz), and amplitude (0 - 255)
+            synth_voice(0, frequency[0] * (octave + 1), 255);
+            synth_voice(1, frequency[1] * (octave + 1), 255);
+            synth_voice(2, frequency[2] * (octave + 1), 255);
+            synth_voice(3, frequency[3] * (octave + 1), 255);
+            
+            newFrame = 0;   // set new frame to 0 so we don't do the above more than once per frame
+        }
+        
+    }
+        	
+} // main()
+
+int get_nav_buttons(void){
+
+    return ((IOPIN0 >> 2) & 0xf);   // get pins P0.2, 0.3, 0.4, 0.5
+
+}
+
+// check buttons a - d
+int get_button_a(void){
+    if (!(IOPIN0 & (1 << 6)))
+        return 1;
+    else 
+        return 0;
+}
+
+int get_button_b(void){
+    if (!(IOPIN0 & (1 << 7)))
+        return 1;
+    else 
+        return 0;
+}
+
+int get_button_c(void){
+    if (!(IOPIN0 & (1 << 8)))
+        return 1;
+    else 
+        return 0;
+}
+
+int get_button_d(void){
+    if (!(IOPIN0 & (1 << 9)))
+        return 1;
+    else 
+        return 0;
+}
+
+// led stuff
+void gameboard_led_init(void){
+    IODIR0 |= ((1 << 10) | ( 1 << 11));
+}
+
+void gameboard_led_1(unsigned int state){
+    if (state)
+        IOCLR0 |= (1 << 10);
+    else
+        IOSET0 |= (1 << 10); 
+}
+
+void gameboard_led_2(unsigned int state){
+    if (state)
+        IOCLR0 |= (1 << 11);
+    else
+        IOSET0 |= (1 << 11); 
+}
